@@ -1,0 +1,4 @@
+/assets
+/env
+*/**/__pycache__
+.env

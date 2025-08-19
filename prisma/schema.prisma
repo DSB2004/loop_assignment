@@ -1,0 +1,53 @@
+generator client {
+  provider             = "prisma-client-py"
+  interface            = "asyncio"
+  recursive_type_depth = 5
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Status{
+    ACTIVE 
+    INACTIVE
+}
+model StoreStatus{
+    id String @id @default(cuid())
+    storeId String
+    status   Status  
+    timestamp DateTime
+
+    createdAt DateTime @default(now())
+    updateAt DateTime  @updatedAt
+
+    @@unique([storeId,timestamp])
+
+    @@map("StoreStatus")
+}
+
+
+model StoreHours{
+    id String @id @default(cuid())
+    storeId String
+    dayOfWeek Int 
+    startTime DateTime
+    endTime  DateTime
+
+    createdAt DateTime @default(now())
+    updateAt DateTime  @updatedAt
+
+    @@unique([storeId,dayOfWeek,startTime,endTime])
+
+    @@map("StoreHour")
+}
+
+model StoreTimezone{
+    id String @id @default(cuid())
+    storeId String @unique
+    timezone String
+    
+    
+    @@map("StoreTimezone")
+}
