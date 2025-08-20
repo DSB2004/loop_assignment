@@ -23,8 +23,6 @@ model StoreStatus{
     updateAt DateTime  @updatedAt
 
     @@unique([storeId,timestamp])
-
-    @@map("StoreStatus")
 }
 
 
@@ -39,15 +37,28 @@ model StoreHours{
     updateAt DateTime  @updatedAt
 
     @@unique([storeId,dayOfWeek,startTime,endTime])
-
-    @@map("StoreHour")
 }
 
 model StoreTimezone{
     id String @id @default(cuid())
     storeId String @unique
     timezone String
-    
-    
-    @@map("StoreTimezone")
+}
+
+
+enum ReportStatus{
+  PENDING
+  FAILED 
+  SUCCESSFUL
+}
+
+model Reports{
+    id String @id @default(cuid())
+    storeId String
+    status ReportStatus @default(PENDING)
+    report  String?
+
+    createdAt DateTime @default(now())
+    updateAt DateTime  @updatedAt
+
 }
