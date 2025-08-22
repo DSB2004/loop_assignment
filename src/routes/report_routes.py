@@ -22,9 +22,9 @@ async def trigger_report(dto:TriggerReportDto):
    
 
 @report_router.post('/get_report')
-def get_report(dto:GetReportDto):
+async def get_report(dto:GetReportDto):
     report_id=dto.report_id
-    return {"message":f"Get report for {report_id}","status":204}
+    return await service.get_report(report_id)
 
 
 # celery -A src.lib.celery.celery worker --loglevel=info -P solo

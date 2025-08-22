@@ -8,8 +8,7 @@ db=Prisma()
 
 
 async def process(job, job_token):
-    print("job received",job.data)
-    await generate_report_task(store_id=job.data['store_id'])
+    await generate_report_task(store_id=job.data['store_id'],report_id=job.data['report_id'])
     
 async def main():
     shutdown_event = asyncio.Event()

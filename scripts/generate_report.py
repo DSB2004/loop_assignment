@@ -4,7 +4,10 @@ from prisma import Prisma
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import csv
-STORE_ID = "b837b6c8-c17f-4c09-be8a-30ccf0e461b4"
+import os
+import asyncio
+import argparse
+
 
 
 '''
@@ -14,10 +17,12 @@ STORE_ID = "b837b6c8-c17f-4c09-be8a-30ccf0e461b4"
 '''
 
 '''
-    what this function get_range do is based on tz and start/end range it returns the business_hour for a day
+    what this function get_range do is based on tz and start/end range it returns the start and end timeline for a day
 '''
 
 def get_range(today,store_business_hour,tz,start,end):
+
+    # print(start,end)
     day_of_week = today.weekday()
     bh_start_template = None
     bh_end_template=None
@@ -47,14 +52,23 @@ def get_range(today,store_business_hour,tz,start,end):
 
         we can set them to start and end directly if we wish to consider the past hours for the starting day 
     '''
+
     bh_start = max(bh_start, start)
     bh_end = min(bh_end, end)
 
 
-    return {"start":bh_start,"end":bh_end}
+    '''
+        edge case incase the last hour goes beyond the business hour 
+        i.e 
+            business hour 9 am to 5 pm
+            and request made at 9:30 pm will consider 8:30 pm to 9:30 pm
+            and this lead to inverted timestamp causing negative calculation
+    '''
+    if bh_start >= bh_end:
+        return None  
 
-
-
+    return {"start": bh_start, "end": bh_end}
+    
 
 '''
     returns fulltime, uptime and downtime of store in a given interval
@@ -71,7 +85,8 @@ async def calculate_uptime_downtime(
 
 
     '''
-        uptime and downtime for that respected period and fulltime is how much the total business second were there in the given time range (hours, days or even week)
+        uptime and downtime for that respected period and fulltime is how much the total business second were there in
+        the given time range (hours, days or even week)
     '''
     uptime = timedelta()
     downtime = timedelta()
@@ -85,18 +100,31 @@ async def calculate_uptime_downtime(
         order={'timestamp': 'asc'}
     )
    
+    
 
     current_day = start_datetime.date()
     end_day = end_datetime.date()
 
+    # print(current_day,end_day)
+
     while current_day<=end_day:
         time_range=get_range(today=current_day,store_business_hour=store_business_hour,tz=tz,start=start_datetime,end=end_datetime)
+
+        '''
+            this is to cover case when the time interval is outside the business hour, mostly incase of last hour,
+            same is described in the calculate_uptime_downtime function
+        '''
+
+        if time_range is None:
+            current_day += timedelta(days=1)
+            continue
 
         bh_start=time_range['start']
 
         bh_end=time_range['end']
         
-        fulltime += (bh_end - bh_start).total_seconds()
+    
+
 
 
         '''
@@ -104,8 +132,6 @@ async def calculate_uptime_downtime(
         '''
         day_logs = [log for log in logs if bh_start <= log.timestamp.astimezone(tz) <= bh_end]
         day_logs.sort(key=lambda x: x.timestamp)
-
-        
 
         '''
             here we start iterating each log to check for ACTIVE and INACTIVE status
@@ -119,7 +145,21 @@ async def calculate_uptime_downtime(
                 the store is considered to be active from 9:00 AM to 10:01 AM after which its status becomes INACTIVE till the next timestamp or end of business hour , if thats before the next timestamp (before 1 hour)
 
         '''
+        
+        '''
+            incase no log found for that time being we wont be adding that in the uptime or downtime,
+            could be that store status data is not present for that time interval
+        '''
+
+        if len(day_logs)==0:
+            current_day += timedelta(days=1)
+            continue
+
+        
+
+        fulltime+= (bh_end - bh_start).total_seconds()
         last_ts = bh_start
+
         for log in day_logs:
             ts = log.timestamp.astimezone(tz)
             delta = ts - last_ts
@@ -151,13 +191,14 @@ async def calculate_uptime_downtime(
     }
 
 
-async def generate_report():
+async def generate_report(args):
+    store_id=args.id
     db = Prisma()
     await db.connect()
-    tz_data = await db.storetimezone.find_unique(where={'storeId': STORE_ID})
+    tz_data = await db.storetimezone.find_unique(where={'storeId': store_id})
     tz = tz_data.timezone if tz_data else "America/Chicago"
     now = datetime.now(ZoneInfo(tz))
-    store_hours = (await db.storehours.find_many(where={'storeId': STORE_ID}))
+    store_hours = (await db.storehours.find_many(where={'storeId': store_id}))
     store_day_to_hour = {}
     for day in store_hours:
         store_day_to_hour[day.dayOfWeek] = {
@@ -165,17 +206,19 @@ async def generate_report():
             'end': day.endTime.astimezone(ZoneInfo(tz))
         }
 
-    last_hour_stats =  await calculate_uptime_downtime(db, tz,STORE_ID, store_day_to_hour,now - timedelta(hours=1), now)
+    last_hour_stats =  await calculate_uptime_downtime(db, tz,store_id, store_day_to_hour,now - timedelta(hours=1),now)
+    last_day_stats =  await calculate_uptime_downtime(db,tz, store_id,store_day_to_hour, now - timedelta(days=1), now)
 
-    last_day_stats =  await calculate_uptime_downtime(db,tz, STORE_ID,store_day_to_hour, now - timedelta(days=1), now)
-
-    last_week_stats =  await calculate_uptime_downtime(db,tz, STORE_ID,store_day_to_hour, now - timedelta(days=7), now)
+    last_week_stats =  await calculate_uptime_downtime(db,tz, store_id,store_day_to_hour, now - timedelta(days=7), now)
     
-    with open(f"report-{STORE_ID}.csv","w") as file:
+    os.makedirs("reports",exist_ok=True)
+
+    with open(f"./reports/report-{store_id}.csv","w") as file:
         writer=csv.writer(file)
 
         writer.writerow(["store_id","uptime_last_hour","uptime_last_day","uptime_last_week","downtime_last_hour","downtime_last_day","downtime_last_week"])
-        writer.writerow([STORE_ID,last_hour_stats["uptime_hours"]*60,last_day_stats["uptime_hours"],last_week_stats["uptime_hours"],last_hour_stats["downtime_hours"]*60,last_day_stats["downtime_hours"],last_week_stats["downtime_hours"]])
+        writer.writerow([store_id,last_hour_stats["uptime_hours"]*60,last_day_stats["uptime_hours"],last_week_stats["uptime_hours"],last_hour_stats["downtime_hours"]*60,last_day_stats["downtime_hours"],last_week_stats["downtime_hours"]])
+    
     print("Last Hour:", last_hour_stats)
     print("Last Day:", last_day_stats)
     print("Last Week:", last_week_stats)
@@ -183,6 +226,9 @@ async def generate_report():
     await db.disconnect()
 
 
-import asyncio
-if __name__ == "__main__":
-    asyncio.run(generate_report())
+
+if __name__=="__main__":
+    parser=argparse.ArgumentParser()
+    parser.add_argument("--id")
+    args=parser.parse_args()
+    asyncio.run(generate_report(args))

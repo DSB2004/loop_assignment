@@ -8,9 +8,11 @@ from prisma import Prisma
 
 import asyncio
 
-#  following scripts is for generating sample data 
-#  generates both the timestamp and business hour in utc timeformat 
-#  to run ->  python ./scripts/sample_data.py --days 10 --stores 2
+'''
+    following scripts is for generating sample data 
+    generates both the timestamp and business hour in utc timezone
+    to run ->  python ./scripts/sample_data.py --days 10 --stores 2
+'''
 
 async def generate_sample_data(num_stores,num_days):
     start_hour = 8         
